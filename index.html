@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Baba Müşteri Takip Sistemi</title>
+    <title>Baba Müşteri Takip Sistemi - Firebase</title>
     <style>
         * {
             margin: 0;
@@ -217,15 +217,6 @@
             background: white;
         }
 
-        .badge {
-            background: #2c3e50;
-            color: white;
-            padding: 5px 14px;
-            border-radius: 30px;
-            font-size: 14px;
-            font-weight: 600;
-        }
-
         .delete-btn, .edit-photo-btn {
             color: white;
             border: none;
@@ -272,8 +263,47 @@
             min-width: 150px;
         }
 
-        .hidden {
-            display: none;
+        .sync-status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .sync-status.online {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .sync-status.offline {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .sync-status.syncing {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: #3498db;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
 
         @media (max-width: 768px) {
@@ -291,6 +321,10 @@
 
 <div class="container">
     <h1>📋 Baba Cari & Ürün Kaydı</h1>
+    
+    <div id="syncStatus" class="sync-status syncing">
+        <span class="loading-spinner"></span> Firebase Bağlanıyor...
+    </div>
 
     <form id="customerForm">
         <!-- Müşteri Bilgileri -->
@@ -359,7 +393,7 @@
 <div class="container">
     <h2>📂 Kayıtlı İşlemler</h2>
     <div id="recordsContainer">
-        <div class="empty-message">Henüz kayıt yok. İlkini ekleyin!</div>
+        <div class="empty-message">📭 Yükleniyor...</div>
     </div>
 
     <div class="footer-actions">
@@ -370,375 +404,517 @@
     </div>
 </div>
 
-<script>
-    (function() {
-        // --- DOM referansları ---
-        const form = document.getElementById('customerForm');
-        const saveBtn = document.getElementById('saveBtn');
-        const customerName = document.getElementById('customerName');
-        const customerPhone = document.getElementById('customerPhone');
-        const customerEmail = document.getElementById('customerEmail');
-        const customerAddress = document.getElementById('customerAddress');
-        const taxOffice = document.getElementById('taxOffice');
-        const taxNumber = document.getElementById('taxNumber');
-        const productName = document.getElementById('productName');
-        const productPrice = document.getElementById('productPrice');
-        const photoInput = document.getElementById('photoInput');
-        const photoPreview = document.getElementById('photoPreview');
-        const photoUploadArea = document.getElementById('photoUploadArea');
-        const recordsContainer = document.getElementById('recordsContainer');
-        const clearAllBtn = document.getElementById('clearAllBtn');
-        const exportBtn = document.getElementById('exportBtn');
-        const importBtn = document.getElementById('importBtn');
-        const importFileInput = document.getElementById('importFileInput');
+<script type="module">
+    // --- Firebase Imports ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    import { 
+        getDatabase, 
+        ref, 
+        set, 
+        push, 
+        onValue, 
+        remove,
+        update,
+        get,
+        child
+    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
 
-        // --- State ---
-        let records = [];
-        let currentPhotoData = null;
-        let editingRecordId = null;
+    // --- Firebase Config ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyDuKYCPTPoZNxRX8MjfKMtfh-FgLO_9BVA",
+        authDomain: "mkrcrm-4bb79.firebaseapp.com",
+        databaseURL: "https://mkrcrm-4bb79-default-rtdb.firebaseio.com",
+        projectId: "mkrcrm-4bb79",
+        storageBucket: "mkrcrm-4bb79.firebasestorage.app",
+        messagingSenderId: "70364666219",
+        appId: "1:70364666219:web:564f5158c06e9352d1542e"
+    };
 
-        // --- LocalStorage ---
-        function loadFromStorage() {
-            const stored = localStorage.getItem('babaRecords');
-            if (stored) {
+    // --- Initialize Firebase ---
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const recordsRef = ref(db, 'records');
+
+    // --- DOM referansları ---
+    const form = document.getElementById('customerForm');
+    const saveBtn = document.getElementById('saveBtn');
+    const customerName = document.getElementById('customerName');
+    const customerPhone = document.getElementById('customerPhone');
+    const customerEmail = document.getElementById('customerEmail');
+    const customerAddress = document.getElementById('customerAddress');
+    const taxOffice = document.getElementById('taxOffice');
+    const taxNumber = document.getElementById('taxNumber');
+    const productName = document.getElementById('productName');
+    const productPrice = document.getElementById('productPrice');
+    const photoInput = document.getElementById('photoInput');
+    const photoPreview = document.getElementById('photoPreview');
+    const photoUploadArea = document.getElementById('photoUploadArea');
+    const recordsContainer = document.getElementById('recordsContainer');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importFileInput = document.getElementById('importFileInput');
+    const syncStatus = document.getElementById('syncStatus');
+
+    // --- State ---
+    let records = [];
+    let currentPhotoData = null;
+    let editingRecordId = null;
+    let isSyncing = false;
+    let isOnline = navigator.onLine;
+
+    // --- Sync Status ---
+    function updateSyncStatus(status, message) {
+        syncStatus.className = 'sync-status ' + status;
+        if (status === 'syncing') {
+            syncStatus.innerHTML = `<span class="loading-spinner"></span> ${message || 'Senkronize ediliyor...'}`;
+        } else if (status === 'online') {
+            syncStatus.innerHTML = `✅ ${message || 'Bağlantı aktif - Veriler Firebase\'de'}`;
+        } else if (status === 'offline') {
+            syncStatus.innerHTML = `⚠️ ${message || 'Çevrimdışı - Veriler yerelde saklanıyor'}`;
+        }
+    }
+
+    // --- Firebase'den veri çek ---
+    function loadFromFirebase() {
+        updateSyncStatus('syncing', 'Veriler yükleniyor...');
+        
+        onValue(recordsRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Firebase'den gelen veriyi diziye çevir
+                records = Object.keys(data).map(key => ({
+                    id: key,
+                    ...data[key]
+                }));
+                // Tarihe göre sırala (en yeni en üstte)
+                records.sort((a, b) => {
+                    if (!a.date) return 1;
+                    if (!b.date) return -1;
+                    return new Date(b.date) - new Date(a.date);
+                });
+            } else {
+                records = [];
+            }
+            
+            renderRecords();
+            updateSyncStatus('online', `${records.length} kayıt yüklendi`);
+            isSyncing = false;
+            
+            // LocalStorage'a da yedekle
+            localStorage.setItem('babaRecords_backup', JSON.stringify(records));
+            
+        }, (error) => {
+            console.error('Firebase okuma hatası:', error);
+            updateSyncStatus('offline', 'Bağlantı hatası - Yerel veriler gösteriliyor');
+            
+            // Yedekten yükle
+            const backup = localStorage.getItem('babaRecords_backup');
+            if (backup) {
                 try {
-                    records = JSON.parse(stored);
+                    records = JSON.parse(backup);
+                    renderRecords();
                 } catch (e) {
                     records = [];
                 }
-            } else {
-                records = [];
             }
-            renderRecords();
+        });
+    }
+
+    // --- Kayıtları render et ---
+    function renderRecords() {
+        if (!records || records.length === 0) {
+            recordsContainer.innerHTML = `<div class="empty-message">📭 Henüz kayıt yok. İlkini ekleyin!</div>`;
+            return;
         }
 
-        function saveToStorage() {
-            localStorage.setItem('babaRecords', JSON.stringify(records));
-        }
+        let html = '';
+        // Zaten sıralı geldiği için ters çevirmeye gerek yok
+        for (let i = 0; i < records.length; i++) {
+            const r = records[i];
+            const photoHtml = r.photo ? 
+                `<img src="${r.photo}" alt="Ürün fotoğrafı" class="product-img">` : 
+                '<span style="color:#b0b0b0; font-size:13px;">📷 Fotoğraf yok</span>';
 
-        // --- Kayıtları render et ---
-        function renderRecords() {
-            if (records.length === 0) {
-                recordsContainer.innerHTML = `<div class="empty-message">📭 Henüz kayıt yok. İlkini ekleyin!</div>`;
-                return;
-            }
-
-            let html = '';
-            for (let i = records.length - 1; i >= 0; i--) {
-                const r = records[i];
-                const photoHtml = r.photo ? 
-                    `<img src="${r.photo}" alt="Ürün fotoğrafı" class="product-img">` : 
-                    '<span style="color:#b0b0b0; font-size:13px;">📷 Fotoğraf yok</span>';
-
-                html += `
-                    <div class="card-item" data-id="${r.id}">
-                        <div class="info">
-                            <div class="field-row"><strong>👤</strong> ${escapeHtml(r.customerName) || 'Belirtilmemiş'}</div>
-                            <div class="field-row"><strong>📞</strong> ${escapeHtml(r.customerPhone) || '-'}</div>
-                            ${r.customerEmail ? `<div class="field-row"><strong>📧</strong> ${escapeHtml(r.customerEmail)}</div>` : ''}
-                            ${r.taxOffice ? `<div class="field-row"><strong>🏛️</strong> ${escapeHtml(r.taxOffice)}</div>` : ''}
-                            ${r.taxNumber ? `<div class="field-row"><strong>🔢</strong> ${escapeHtml(r.taxNumber)}</div>` : ''}
-                            <div class="field-row"><strong>📦</strong> ${escapeHtml(r.productName) || '-'}</div>
-                            <div class="field-row"><strong>💰</strong> ${r.productPrice ? parseFloat(r.productPrice).toFixed(2) + ' ₺' : '-'}</div>
-                            ${r.customerAddress ? `<div class="field-row"><strong>📝</strong> ${escapeHtml(r.customerAddress)}</div>` : ''}
-                            <small style="color:#7f8c8d;">📅 ${r.date || ''}</small>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-                            ${photoHtml}
-                            <div style="display:flex; flex-direction:column; gap:8px;">
-                                <button class="edit-photo-btn" data-id="${r.id}">🖼️ Fotoğraf Ekle/Güncelle</button>
-                                <button class="delete-btn" data-id="${r.id}">🗑️ Sil</button>
-                            </div>
+            html += `
+                <div class="card-item" data-id="${r.id}">
+                    <div class="info">
+                        <div class="field-row"><strong>👤</strong> ${escapeHtml(r.customerName) || 'Belirtilmemiş'}</div>
+                        <div class="field-row"><strong>📞</strong> ${escapeHtml(r.customerPhone) || '-'}</div>
+                        ${r.customerEmail ? `<div class="field-row"><strong>📧</strong> ${escapeHtml(r.customerEmail)}</div>` : ''}
+                        ${r.taxOffice ? `<div class="field-row"><strong>🏛️</strong> ${escapeHtml(r.taxOffice)}</div>` : ''}
+                        ${r.taxNumber ? `<div class="field-row"><strong>🔢</strong> ${escapeHtml(r.taxNumber)}</div>` : ''}
+                        <div class="field-row"><strong>📦</strong> ${escapeHtml(r.productName) || '-'}</div>
+                        <div class="field-row"><strong>💰</strong> ${r.productPrice ? parseFloat(r.productPrice).toFixed(2) + ' ₺' : '-'}</div>
+                        ${r.customerAddress ? `<div class="field-row"><strong>📝</strong> ${escapeHtml(r.customerAddress)}</div>` : ''}
+                        <small style="color:#7f8c8d;">📅 ${r.date || ''}</small>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                        ${photoHtml}
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <button class="edit-photo-btn" data-id="${r.id}">🖼️ Fotoğraf Ekle/Güncelle</button>
+                            <button class="delete-btn" data-id="${r.id}">🗑️ Sil</button>
                         </div>
                     </div>
-                `;
-            }
-            recordsContainer.innerHTML = html;
-
-            // Sil butonları
-            document.querySelectorAll('.delete-btn').forEach(btn => {
-                btn.addEventListener('click', function(e) {
-                    const id = this.getAttribute('data-id');
-                    const record = records.find(r => r.id === id);
-                    if (record && confirm(`"${record.customerName || 'Bu kayıt'}" silinsin mi?`)) {
-                        records = records.filter(r => r.id !== id);
-                        saveToStorage();
-                        renderRecords();
-                    }
-                });
-            });
-
-            // Fotoğraf güncelleme butonları
-            document.querySelectorAll('.edit-photo-btn').forEach(btn => {
-                btn.addEventListener('click', function(e) {
-                    const id = this.getAttribute('data-id');
-                    const record = records.find(r => r.id === id);
-                    if (record) {
-                        editingRecordId = id;
-                        customerName.value = record.customerName || '';
-                        customerPhone.value = record.customerPhone || '';
-                        customerEmail.value = record.customerEmail || '';
-                        customerAddress.value = record.customerAddress || '';
-                        taxOffice.value = record.taxOffice || '';
-                        taxNumber.value = record.taxNumber || '';
-                        productName.value = record.productName || '';
-                        productPrice.value = record.productPrice || '';
-                        
-                        if (record.photo) {
-                            currentPhotoData = record.photo;
-                            photoPreview.src = record.photo;
-                            photoPreview.style.display = 'block';
-                            const placeholderText = photoUploadArea.querySelector('.placeholder-text');
-                            if (placeholderText) placeholderText.style.display = 'none';
-                        } else {
-                            currentPhotoData = null;
-                            photoPreview.style.display = 'none';
-                            const placeholderText = photoUploadArea.querySelector('.placeholder-text');
-                            if (placeholderText) placeholderText.style.display = 'block';
-                        }
-                        
-                        saveBtn.textContent = '🔄 Güncelle';
-                        saveBtn.style.background = '#f39c12';
-                        
-                        document.querySelector('.container').scrollIntoView({ behavior: 'smooth' });
-                    }
-                });
-            });
+                </div>
+            `;
         }
+        recordsContainer.innerHTML = html;
 
-        function escapeHtml(text) {
-            if (!text) return '';
-            const map = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;'
-            };
-            return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
-        }
-
-        // --- Fotoğraf yükleme ---
-        photoUploadArea.addEventListener('click', function(e) {
-            if (e.target.tagName !== 'IMG') {
-                photoInput.click();
-            }
-        });
-
-        photoUploadArea.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            this.style.borderColor = '#27ae60';
-            this.style.background = '#eafaf1';
-        });
-
-        photoUploadArea.addEventListener('dragleave', function(e) {
-            e.preventDefault();
-            this.style.borderColor = '#b0bec5';
-            this.style.background = '#f8fafc';
-        });
-
-        photoUploadArea.addEventListener('drop', function(e) {
-            e.preventDefault();
-            this.style.borderColor = '#b0bec5';
-            this.style.background = '#f8fafc';
-            const files = e.dataTransfer.files;
-            if (files.length > 0 && files[0].type.startsWith('image/')) {
-                handleFile(files[0]);
-            }
-        });
-
-        photoInput.addEventListener('change', function(e) {
-            if (this.files.length > 0) {
-                handleFile(this.files[0]);
-            }
-        });
-
-        function handleFile(file) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                currentPhotoData = event.target.result;
-                photoPreview.src = currentPhotoData;
-                photoPreview.style.display = 'block';
-                const placeholderText = photoUploadArea.querySelector('.placeholder-text');
-                if (placeholderText) placeholderText.style.display = 'none';
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // --- Form submit (KAYDET / GÜNCELLE) ---
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            console.log('Form submit çalıştı!'); // Debug için
-
-            // Validasyon
-            const name = customerName.value.trim();
-            const product = productName.value.trim();
-            const price = productPrice.value.trim();
-
-            if (!name) {
-                alert('Lütfen Müşteri Adı girin!');
-                customerName.focus();
-                return;
-            }
-            if (!product) {
-                alert('Lütfen Ürün/Hizmet adı girin!');
-                productName.focus();
-                return;
-            }
-            if (!price || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
-                alert('Lütfen geçerli bir fiyat girin (pozitif sayı)!');
-                productPrice.focus();
-                return;
-            }
-
-            const recordData = {
-                customerName: name,
-                customerPhone: customerPhone.value.trim(),
-                customerEmail: customerEmail.value.trim(),
-                customerAddress: customerAddress.value.trim(),
-                taxOffice: taxOffice.value.trim(),
-                taxNumber: taxNumber.value.trim(),
-                productName: product,
-                productPrice: parseFloat(price),
-                photo: currentPhotoData || null,
-                date: new Date().toLocaleString('tr-TR')
-            };
-
-            console.log('editingRecordId:', editingRecordId); // Debug için
-
-            if (editingRecordId) {
-                // Güncelleme
-                const index = records.findIndex(r => r.id === editingRecordId);
-                if (index !== -1) {
-                    records[index] = { 
-                        ...records[index], 
-                        ...recordData,
-                        id: editingRecordId,
-                        date: records[index].date
-                    };
+        // Sil butonları
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                const id = this.getAttribute('data-id');
+                const record = records.find(r => r.id === id);
+                if (record && confirm(`"${record.customerName || 'Bu kayıt'}" silinsin mi?`)) {
+                    deleteRecord(id);
                 }
-                editingRecordId = null;
-                saveBtn.textContent = '✅ Kaydet';
-                saveBtn.style.background = '#27ae60';
+            });
+        });
+
+        // Fotoğraf güncelleme butonları
+        document.querySelectorAll('.edit-photo-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                const id = this.getAttribute('data-id');
+                const record = records.find(r => r.id === id);
+                if (record) {
+                    editRecord(id);
+                }
+            });
+        });
+    }
+
+    // --- Firebase'e kaydet ---
+    async function saveToFirebase(recordData, isUpdate = false) {
+        try {
+            let recordId = recordData.id;
+            
+            if (isUpdate && recordId) {
+                // Güncelleme
+                const recordRef = ref(db, `records/${recordId}`);
+                await update(recordRef, recordData);
+                return recordId;
             } else {
                 // Yeni kayıt
-                const newRecord = {
-                    id: Date.now() + Math.random().toString(36).substring(2, 6),
-                    ...recordData
-                };
-                records.push(newRecord);
+                const newRecordRef = push(recordsRef);
+                const newId = newRecordRef.key;
+                recordData.id = newId;
+                await set(newRecordRef, recordData);
+                return newId;
             }
+        } catch (error) {
+            console.error('Firebase kayıt hatası:', error);
+            alert('Kayıt sırasında hata oluştu! Lütfen internet bağlantınızı kontrol edin.');
+            return null;
+        }
+    }
 
-            saveToStorage();
-            renderRecords();
+    // --- Firebase'den sil ---
+    async function deleteRecord(id) {
+        try {
+            await remove(ref(db, `records/${id}`));
+            // Başarılı - veriler zaten onValue ile güncellenecek
+        } catch (error) {
+            console.error('Silme hatası:', error);
+            alert('Silme işlemi başarısız!');
+        }
+    }
 
-            // Formu temizle
-            customerName.value = '';
-            customerPhone.value = '';
-            customerEmail.value = '';
-            customerAddress.value = '';
-            taxOffice.value = '';
-            taxNumber.value = '';
-            productName.value = '';
-            productPrice.value = '';
+    // --- Kayıt düzenleme ---
+    function editRecord(id) {
+        const record = records.find(r => r.id === id);
+        if (!record) return;
+        
+        editingRecordId = id;
+        customerName.value = record.customerName || '';
+        customerPhone.value = record.customerPhone || '';
+        customerEmail.value = record.customerEmail || '';
+        customerAddress.value = record.customerAddress || '';
+        taxOffice.value = record.taxOffice || '';
+        taxNumber.value = record.taxNumber || '';
+        productName.value = record.productName || '';
+        productPrice.value = record.productPrice || '';
+        
+        if (record.photo) {
+            currentPhotoData = record.photo;
+            photoPreview.src = record.photo;
+            photoPreview.style.display = 'block';
+            const placeholderText = photoUploadArea.querySelector('.placeholder-text');
+            if (placeholderText) placeholderText.style.display = 'none';
+        } else {
             currentPhotoData = null;
-            photoPreview.src = '#';
             photoPreview.style.display = 'none';
             const placeholderText = photoUploadArea.querySelector('.placeholder-text');
             if (placeholderText) placeholderText.style.display = 'block';
-            photoInput.value = '';
-            
-            // Başarı mesajı
-            const originalText = saveBtn.textContent;
-            saveBtn.textContent = '✅ ' + (editingRecordId ? 'Güncellendi!' : 'Kaydedildi!');
-            saveBtn.style.background = '#2ecc71';
-            setTimeout(() => {
-                saveBtn.textContent = originalText;
-                saveBtn.style.background = editingRecordId ? '#f39c12' : '#27ae60';
-            }, 1500);
-        });
+        }
+        
+        saveBtn.textContent = '🔄 Güncelle';
+        saveBtn.style.background = '#f39c12';
+        
+        document.querySelector('.container').scrollIntoView({ behavior: 'smooth' });
+    }
 
-        // --- Temizle ---
-        clearAllBtn.addEventListener('click', function() {
-            if (records.length === 0) {
-                alert('Zaten hiç kayıt yok.');
-                return;
-            }
-            if (confirm('Tüm kayıtlar silinecek. Emin misiniz?')) {
-                records = [];
-                saveToStorage();
-                renderRecords();
-                // Formu da temizle
-                customerName.value = '';
-                customerPhone.value = '';
-                customerEmail.value = '';
-                customerAddress.value = '';
-                taxOffice.value = '';
-                taxNumber.value = '';
-                productName.value = '';
-                productPrice.value = '';
-                currentPhotoData = null;
-                photoPreview.src = '#';
-                photoPreview.style.display = 'none';
-                const placeholderText = photoUploadArea.querySelector('.placeholder-text');
-                if (placeholderText) placeholderText.style.display = 'block';
-                photoInput.value = '';
+    // --- Form submit ---
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const name = customerName.value.trim();
+        const product = productName.value.trim();
+        const price = productPrice.value.trim();
+
+        if (!name) {
+            alert('Lütfen Müşteri Adı girin!');
+            customerName.focus();
+            return;
+        }
+        if (!product) {
+            alert('Lütfen Ürün/Hizmet adı girin!');
+            productName.focus();
+            return;
+        }
+        if (!price || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
+            alert('Lütfen geçerli bir fiyat girin (pozitif sayı)!');
+            productPrice.focus();
+            return;
+        }
+
+        const recordData = {
+            customerName: name,
+            customerPhone: customerPhone.value.trim(),
+            customerEmail: customerEmail.value.trim(),
+            customerAddress: customerAddress.value.trim(),
+            taxOffice: taxOffice.value.trim(),
+            taxNumber: taxNumber.value.trim(),
+            productName: product,
+            productPrice: parseFloat(price),
+            photo: currentPhotoData || null,
+            date: new Date().toLocaleString('tr-TR'),
+            updatedAt: new Date().toISOString()
+        };
+
+        // Butonu devre dışı bırak
+        saveBtn.disabled = true;
+        saveBtn.textContent = '⏳ Kaydediliyor...';
+
+        let result;
+        if (editingRecordId) {
+            recordData.id = editingRecordId;
+            result = await saveToFirebase(recordData, true);
+            if (result) {
                 editingRecordId = null;
-                saveBtn.textContent = '✅ Kaydet';
-                saveBtn.style.background = '#27ae60';
+                saveBtn.textContent = '✅ Güncellendi!';
             }
-        });
-
-        // --- JSON Dışa Aktar ---
-        exportBtn.addEventListener('click', function() {
-            if (records.length === 0) {
-                alert('Dışa aktarılacak kayıt yok.');
-                return;
+        } else {
+            result = await saveToFirebase(recordData, false);
+            if (result) {
+                saveBtn.textContent = '✅ Kaydedildi!';
             }
-            const dataStr = JSON.stringify(records, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `baba_cari_kayitlari_${new Date().toISOString().slice(0,10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-        });
+        }
 
-        // --- JSON İçe Aktar ---
-        importBtn.addEventListener('click', function() {
-            importFileInput.click();
-        });
+        // Butonu eski haline getir
+        setTimeout(() => {
+            saveBtn.disabled = false;
+            saveBtn.textContent = editingRecordId ? '🔄 Güncelle' : '✅ Kaydet';
+            saveBtn.style.background = editingRecordId ? '#f39c12' : '#27ae60';
+        }, 1500);
 
-        importFileInput.addEventListener('change', function(e) {
-            const file = this.files[0];
-            if (!file) return;
-            
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                try {
-                    const importedData = JSON.parse(event.target.result);
-                    if (Array.isArray(importedData) && importedData.length > 0) {
-                        if (confirm(`${importedData.length} kayıt içe aktarılacak. Mevcut kayıtların üzerine yazılsın mı?`)) {
-                            records = importedData;
-                            saveToStorage();
-                            renderRecords();
-                            alert('Kayıtlar başarıyla içe aktarıldı!');
-                        }
-                    } else {
-                        alert('Geçersiz dosya formatı!');
+        // Formu temizle (sadece yeni kayıt ise)
+        if (!editingRecordId) {
+            resetForm();
+        } else {
+            // Düzenleme modundaysak, başarılı kayıttan sonra temizle
+            editingRecordId = null;
+            resetForm();
+            saveBtn.textContent = '✅ Kaydet';
+            saveBtn.style.background = '#27ae60';
+        }
+    });
+
+    // --- Form reset ---
+    function resetForm() {
+        customerName.value = '';
+        customerPhone.value = '';
+        customerEmail.value = '';
+        customerAddress.value = '';
+        taxOffice.value = '';
+        taxNumber.value = '';
+        productName.value = '';
+        productPrice.value = '';
+        currentPhotoData = null;
+        photoPreview.src = '#';
+        photoPreview.style.display = 'none';
+        const placeholderText = photoUploadArea.querySelector('.placeholder-text');
+        if (placeholderText) placeholderText.style.display = 'block';
+        photoInput.value = '';
+        editingRecordId = null;
+        saveBtn.textContent = '✅ Kaydet';
+        saveBtn.style.background = '#27ae60';
+    }
+
+    // --- Fotoğraf yükleme ---
+    photoUploadArea.addEventListener('click', function(e) {
+        if (e.target.tagName !== 'IMG') {
+            photoInput.click();
+        }
+    });
+
+    photoUploadArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#27ae60';
+        this.style.background = '#eafaf1';
+    });
+
+    photoUploadArea.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#b0bec5';
+        this.style.background = '#f8fafc';
+    });
+
+    photoUploadArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.style.borderColor = '#b0bec5';
+        this.style.background = '#f8fafc';
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) {
+            handleFile(files[0]);
+        }
+    });
+
+    photoInput.addEventListener('change', function(e) {
+        if (this.files.length > 0) {
+            handleFile(this.files[0]);
+        }
+    });
+
+    function handleFile(file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            currentPhotoData = event.target.result;
+            photoPreview.src = currentPhotoData;
+            photoPreview.style.display = 'block';
+            const placeholderText = photoUploadArea.querySelector('.placeholder-text');
+            if (placeholderText) placeholderText.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // --- Tümünü temizle ---
+    clearAllBtn.addEventListener('click', function() {
+        if (records.length === 0) {
+            alert('Zaten hiç kayıt yok.');
+            return;
+        }
+        if (confirm('Tüm kayıtlar silinecek. Emin misiniz?')) {
+            // Firebase'den tüm verileri sil
+            set(recordsRef, null)
+                .then(() => {
+                    records = [];
+                    renderRecords();
+                    updateSyncStatus('online', 'Tüm kayıtlar silindi');
+                })
+                .catch((error) => {
+                    console.error('Toplu silme hatası:', error);
+                    alert('Silme işlemi başarısız!');
+                });
+        }
+    });
+
+    // --- JSON Dışa Aktar ---
+    exportBtn.addEventListener('click', function() {
+        if (records.length === 0) {
+            alert('Dışa aktarılacak kayıt yok.');
+            return;
+        }
+        const dataStr = JSON.stringify(records, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `baba_cari_kayitlari_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    // --- JSON İçe Aktar ---
+    importBtn.addEventListener('click', function() {
+        importFileInput.click();
+    });
+
+    importFileInput.addEventListener('change', function(e) {
+        const file = this.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const importedData = JSON.parse(event.target.result);
+                if (Array.isArray(importedData) && importedData.length > 0) {
+                    if (confirm(`${importedData.length} kayıt içe aktarılacak. Mevcut kayıtların üzerine yazılsın mı?`)) {
+                        // Firebase'e toplu olarak ekle
+                        const updates = {};
+                        importedData.forEach(record => {
+                            const id = record.id || push(recordsRef).key;
+                            updates[id] = record;
+                        });
+                        
+                        set(recordsRef, updates)
+                            .then(() => {
+                                alert('Kayıtlar başarıyla içe aktarıldı!');
+                            })
+                            .catch((error) => {
+                                console.error('İçe aktarma hatası:', error);
+                                alert('İçe aktarma sırasında hata oluştu!');
+                            });
                     }
-                } catch (error) {
-                    alert('Dosya okunamadı! Lütfen geçerli bir JSON dosyası seçin.');
+                } else {
+                    alert('Geçersiz dosya formatı!');
                 }
-            };
-            reader.readAsText(file);
-            this.value = '';
-        });
+            } catch (error) {
+                alert('Dosya okunamadı! Lütfen geçerli bir JSON dosyası seçin.');
+            }
+        };
+        reader.readAsText(file);
+        this.value = '';
+    });
 
-        // --- Başlat ---
-        loadFromStorage();
-    })();
+    // --- Escape function ---
+    function escapeHtml(text) {
+        if (!text) return '';
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+
+    // --- Online/Offline durumunu takip et ---
+    window.addEventListener('online', function() {
+        isOnline = true;
+        updateSyncStatus('syncing', 'Tekrar bağlanıldı, veriler senkronize ediliyor...');
+        loadFromFirebase();
+    });
+
+    window.addEventListener('offline', function() {
+        isOnline = false;
+        updateSyncStatus('offline', 'İnternet bağlantısı kesildi - Yerel veriler gösteriliyor');
+    });
+
+    // --- Başlat ---
+    loadFromFirebase();
+
+    // --- CSS için ek ---
+    const style = document.createElement('style');
+    style.textContent = `
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+    `;
+    document.head.appendChild(style);
 </script>
 
 </body>
