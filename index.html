@@ -290,6 +290,12 @@
             border: 1px solid #ffeeba;
         }
 
+        .sync-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
         .loading-spinner {
             display: inline-block;
             width: 20px;
@@ -405,6 +411,8 @@
 </div>
 
 <script type="module">
+    console.log('🚀 Uygulama başlatılıyor...');
+    
     // --- Firebase Imports ---
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
     import { 
@@ -414,10 +422,10 @@
         push, 
         onValue, 
         remove,
-        update,
-        get,
-        child
+        update
     } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+
+    console.log('📦 Firebase modülleri import edildi');
 
     // --- Firebase Config ---
     const firebaseConfig = {
@@ -430,10 +438,21 @@
         appId: "1:70364666219:web:564f5158c06e9352d1542e"
     };
 
+    console.log('⚙️ Firebase config yüklendi');
+
     // --- Initialize Firebase ---
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-    const recordsRef = ref(db, 'records');
+    let app, db, recordsRef;
+    
+    try {
+        app = initializeApp(firebaseConfig);
+        db = getDatabase(app);
+        recordsRef = ref(db, 'records');
+        console.log('✅ Firebase başarıyla başlatıldı!');
+    } catch (error) {
+        console.error('❌ Firebase başlatma hatası:', error);
+        document.getElementById('syncStatus').className = 'sync-status error';
+        document.getElementById('syncStatus').innerHTML = '❌ Firebase bağlantı hatası! Lütfen sayfayı yenileyin.';
+    }
 
     // --- DOM referansları ---
     const form = document.getElementById('customerForm');
@@ -460,8 +479,6 @@
     let records = [];
     let currentPhotoData = null;
     let editingRecordId = null;
-    let isSyncing = false;
-    let isOnline = navigator.onLine;
 
     // --- Sync Status ---
     function updateSyncStatus(status, message) {
@@ -471,54 +488,71 @@
         } else if (status === 'online') {
             syncStatus.innerHTML = `✅ ${message || 'Bağlantı aktif - Veriler Firebase\'de'}`;
         } else if (status === 'offline') {
-            syncStatus.innerHTML = `⚠️ ${message || 'Çevrimdışı - Veriler yerelde saklanıyor'}`;
+            syncStatus.innerHTML = `⚠️ ${message || 'Çevrimdışı - Yerel veriler gösteriliyor'}`;
+        } else if (status === 'error') {
+            syncStatus.innerHTML = `❌ ${message || 'Bağlantı hatası!'}`;
         }
     }
 
     // --- Firebase'den veri çek ---
     function loadFromFirebase() {
+        if (!db || !recordsRef) {
+            updateSyncStatus('error', 'Firebase bağlantısı yok!');
+            // Yedekten yükle
+            loadFromBackup();
+            return;
+        }
+        
         updateSyncStatus('syncing', 'Veriler yükleniyor...');
+        console.log('📡 Firebase\'den veri çekiliyor...');
         
         onValue(recordsRef, (snapshot) => {
+            console.log('📥 Firebase verisi geldi!');
             const data = snapshot.val();
             if (data) {
-                // Firebase'den gelen veriyi diziye çevir
                 records = Object.keys(data).map(key => ({
                     id: key,
                     ...data[key]
                 }));
-                // Tarihe göre sırala (en yeni en üstte)
                 records.sort((a, b) => {
                     if (!a.date) return 1;
                     if (!b.date) return -1;
                     return new Date(b.date) - new Date(a.date);
                 });
+                console.log(`📊 ${records.length} kayıt yüklendi`);
             } else {
                 records = [];
+                console.log('📭 Hiç kayıt yok');
             }
             
             renderRecords();
             updateSyncStatus('online', `${records.length} kayıt yüklendi`);
-            isSyncing = false;
             
-            // LocalStorage'a da yedekle
+            // LocalStorage'a yedekle
             localStorage.setItem('babaRecords_backup', JSON.stringify(records));
             
         }, (error) => {
-            console.error('Firebase okuma hatası:', error);
-            updateSyncStatus('offline', 'Bağlantı hatası - Yerel veriler gösteriliyor');
-            
-            // Yedekten yükle
-            const backup = localStorage.getItem('babaRecords_backup');
-            if (backup) {
-                try {
-                    records = JSON.parse(backup);
-                    renderRecords();
-                } catch (e) {
-                    records = [];
-                }
-            }
+            console.error('❌ Firebase okuma hatası:', error);
+            updateSyncStatus('error', 'Bağlantı hatası - Yerel veriler gösteriliyor');
+            loadFromBackup();
         });
+    }
+
+    // --- Yedekten yükle ---
+    function loadFromBackup() {
+        const backup = localStorage.getItem('babaRecords_backup');
+        if (backup) {
+            try {
+                records = JSON.parse(backup);
+                renderRecords();
+                console.log('💾 Yedekten yüklendi:', records.length, 'kayıt');
+            } catch (e) {
+                records = [];
+            }
+        } else {
+            records = [];
+            renderRecords();
+        }
     }
 
     // --- Kayıtları render et ---
@@ -529,7 +563,6 @@
         }
 
         let html = '';
-        // Zaten sıralı geldiği için ters çevirmeye gerek yok
         for (let i = 0; i < records.length; i++) {
             const r = records[i];
             const photoHtml = r.photo ? 
@@ -590,12 +623,10 @@
             let recordId = recordData.id;
             
             if (isUpdate && recordId) {
-                // Güncelleme
                 const recordRef = ref(db, `records/${recordId}`);
                 await update(recordRef, recordData);
                 return recordId;
             } else {
-                // Yeni kayıt
                 const newRecordRef = push(recordsRef);
                 const newId = newRecordRef.key;
                 recordData.id = newId;
@@ -603,7 +634,7 @@
                 return newId;
             }
         } catch (error) {
-            console.error('Firebase kayıt hatası:', error);
+            console.error('❌ Firebase kayıt hatası:', error);
             alert('Kayıt sırasında hata oluştu! Lütfen internet bağlantınızı kontrol edin.');
             return null;
         }
@@ -613,9 +644,8 @@
     async function deleteRecord(id) {
         try {
             await remove(ref(db, `records/${id}`));
-            // Başarılı - veriler zaten onValue ile güncellenecek
         } catch (error) {
-            console.error('Silme hatası:', error);
+            console.error('❌ Silme hatası:', error);
             alert('Silme işlemi başarısız!');
         }
     }
@@ -657,6 +687,7 @@
     // --- Form submit ---
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
+        console.log('📝 Form submit edildi');
 
         const name = customerName.value.trim();
         const product = productName.value.trim();
@@ -692,7 +723,6 @@
             updatedAt: new Date().toISOString()
         };
 
-        // Butonu devre dışı bırak
         saveBtn.disabled = true;
         saveBtn.textContent = '⏳ Kaydediliyor...';
 
@@ -703,31 +733,21 @@
             if (result) {
                 editingRecordId = null;
                 saveBtn.textContent = '✅ Güncellendi!';
+                resetForm();
             }
         } else {
             result = await saveToFirebase(recordData, false);
             if (result) {
                 saveBtn.textContent = '✅ Kaydedildi!';
+                resetForm();
             }
         }
 
-        // Butonu eski haline getir
         setTimeout(() => {
             saveBtn.disabled = false;
-            saveBtn.textContent = editingRecordId ? '🔄 Güncelle' : '✅ Kaydet';
-            saveBtn.style.background = editingRecordId ? '#f39c12' : '#27ae60';
-        }, 1500);
-
-        // Formu temizle (sadece yeni kayıt ise)
-        if (!editingRecordId) {
-            resetForm();
-        } else {
-            // Düzenleme modundaysak, başarılı kayıttan sonra temizle
-            editingRecordId = null;
-            resetForm();
             saveBtn.textContent = '✅ Kaydet';
             saveBtn.style.background = '#27ae60';
-        }
+        }, 1500);
     });
 
     // --- Form reset ---
@@ -805,7 +825,6 @@
             return;
         }
         if (confirm('Tüm kayıtlar silinecek. Emin misiniz?')) {
-            // Firebase'den tüm verileri sil
             set(recordsRef, null)
                 .then(() => {
                     records = [];
@@ -813,7 +832,7 @@
                     updateSyncStatus('online', 'Tüm kayıtlar silindi');
                 })
                 .catch((error) => {
-                    console.error('Toplu silme hatası:', error);
+                    console.error('❌ Toplu silme hatası:', error);
                     alert('Silme işlemi başarısız!');
                 });
         }
@@ -850,7 +869,6 @@
                 const importedData = JSON.parse(event.target.result);
                 if (Array.isArray(importedData) && importedData.length > 0) {
                     if (confirm(`${importedData.length} kayıt içe aktarılacak. Mevcut kayıtların üzerine yazılsın mı?`)) {
-                        // Firebase'e toplu olarak ekle
                         const updates = {};
                         importedData.forEach(record => {
                             const id = record.id || push(recordsRef).key;
@@ -862,7 +880,7 @@
                                 alert('Kayıtlar başarıyla içe aktarıldı!');
                             })
                             .catch((error) => {
-                                console.error('İçe aktarma hatası:', error);
+                                console.error('❌ İçe aktarma hatası:', error);
                                 alert('İçe aktarma sırasında hata oluştu!');
                             });
                     }
@@ -890,22 +908,23 @@
         return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
     }
 
-    // --- Online/Offline durumunu takip et ---
+    // --- Online/Offline ---
     window.addEventListener('online', function() {
-        isOnline = true;
+        console.log('🌐 İnternet bağlantısı yeniden sağlandı');
         updateSyncStatus('syncing', 'Tekrar bağlanıldı, veriler senkronize ediliyor...');
         loadFromFirebase();
     });
 
     window.addEventListener('offline', function() {
-        isOnline = false;
+        console.log('📴 İnternet bağlantısı kesildi');
         updateSyncStatus('offline', 'İnternet bağlantısı kesildi - Yerel veriler gösteriliyor');
     });
 
     // --- Başlat ---
+    console.log('🚀 Uygulama başlatılıyor...');
     loadFromFirebase();
 
-    // --- CSS için ek ---
+    // CSS ekle
     const style = document.createElement('style');
     style.textContent = `
         .btn:disabled {
@@ -915,6 +934,8 @@
         }
     `;
     document.head.appendChild(style);
+    
+    console.log('✅ Uygulama hazır!');
 </script>
 
 </body>
