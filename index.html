@@ -333,7 +333,6 @@
     </div>
 
     <form id="customerForm">
-        <!-- Müşteri Bilgileri -->
         <div class="row-2col">
             <div class="form-group">
                 <label>👤 Müşteri Adı / Cari Ünvan</label>
@@ -361,17 +360,16 @@
         </div>
 
         <div class="form-group">
-            <label>📝 Adres / Not (isteğe bağlı)</label>
+            <label>📝 Adres / Not</label>
             <textarea id="customerAddress" placeholder="Adres, vergi dairesi vs."></textarea>
         </div>
 
         <hr style="margin: 20px 0; border: 1px solid #ecf0f1;">
 
-        <!-- Ürün Bilgileri -->
         <div class="row-2col">
             <div class="form-group">
                 <label>📦 Alınan Ürün / Hizmet</label>
-                <input type="text" id="productName" placeholder="Örn: 50 kg Un, Tamir işçiliği" required>
+                <input type="text" id="productName" placeholder="Örn: 50 kg Un" required>
             </div>
             <div class="form-group">
                 <label>💰 Genel Fiyat (₺)</label>
@@ -379,9 +377,8 @@
             </div>
         </div>
 
-        <!-- Fotoğraf Yükleme -->
         <div class="form-group">
-            <label>🖼️ Fotoğraf Yükle (Ürün veya Fiş)</label>
+            <label>🖼️ Fotoğraf Yükle</label>
             <div class="photo-upload-area" id="photoUploadArea">
                 <span class="placeholder-text">
                     <i>📸</i>
@@ -410,11 +407,20 @@
     </div>
 </div>
 
+<script type="importmap">
+{
+    "imports": {
+        "firebase/app": "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js",
+        "firebase/database": "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js"
+    }
+}
+</script>
+
 <script type="module">
     console.log('🚀 Uygulama başlatılıyor...');
     
-    // --- Firebase Imports ---
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    // Firebase import
+    import { initializeApp } from "firebase/app";
     import { 
         getDatabase, 
         ref, 
@@ -423,11 +429,10 @@
         onValue, 
         remove,
         update
-    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+    } from "firebase/database";
 
     console.log('📦 Firebase modülleri import edildi');
 
-    // --- Firebase Config ---
     const firebaseConfig = {
         apiKey: "AIzaSyDuKYCPTPoZNxRX8MjfKMtfh-FgLO_9BVA",
         authDomain: "mkrcrm-4bb79.firebaseapp.com",
@@ -440,7 +445,6 @@
 
     console.log('⚙️ Firebase config yüklendi');
 
-    // --- Initialize Firebase ---
     let app, db, recordsRef;
     
     try {
@@ -448,13 +452,15 @@
         db = getDatabase(app);
         recordsRef = ref(db, 'records');
         console.log('✅ Firebase başarıyla başlatıldı!');
+        document.getElementById('syncStatus').className = 'sync-status online';
+        document.getElementById('syncStatus').innerHTML = '✅ Firebase bağlantısı aktif';
     } catch (error) {
         console.error('❌ Firebase başlatma hatası:', error);
         document.getElementById('syncStatus').className = 'sync-status error';
-        document.getElementById('syncStatus').innerHTML = '❌ Firebase bağlantı hatası! Lütfen sayfayı yenileyin.';
+        document.getElementById('syncStatus').innerHTML = '❌ Firebase bağlantı hatası!';
     }
 
-    // --- DOM referansları ---
+    // DOM referansları
     const form = document.getElementById('customerForm');
     const saveBtn = document.getElementById('saveBtn');
     const customerName = document.getElementById('customerName');
@@ -475,30 +481,26 @@
     const importFileInput = document.getElementById('importFileInput');
     const syncStatus = document.getElementById('syncStatus');
 
-    // --- State ---
     let records = [];
     let currentPhotoData = null;
     let editingRecordId = null;
 
-    // --- Sync Status ---
     function updateSyncStatus(status, message) {
         syncStatus.className = 'sync-status ' + status;
         if (status === 'syncing') {
             syncStatus.innerHTML = `<span class="loading-spinner"></span> ${message || 'Senkronize ediliyor...'}`;
         } else if (status === 'online') {
-            syncStatus.innerHTML = `✅ ${message || 'Bağlantı aktif - Veriler Firebase\'de'}`;
+            syncStatus.innerHTML = `✅ ${message || 'Bağlantı aktif'}`;
         } else if (status === 'offline') {
-            syncStatus.innerHTML = `⚠️ ${message || 'Çevrimdışı - Yerel veriler gösteriliyor'}`;
+            syncStatus.innerHTML = `⚠️ ${message || 'Çevrimdışı'}`;
         } else if (status === 'error') {
             syncStatus.innerHTML = `❌ ${message || 'Bağlantı hatası!'}`;
         }
     }
 
-    // --- Firebase'den veri çek ---
     function loadFromFirebase() {
         if (!db || !recordsRef) {
             updateSyncStatus('error', 'Firebase bağlantısı yok!');
-            // Yedekten yükle
             loadFromBackup();
             return;
         }
@@ -527,8 +529,6 @@
             
             renderRecords();
             updateSyncStatus('online', `${records.length} kayıt yüklendi`);
-            
-            // LocalStorage'a yedekle
             localStorage.setItem('babaRecords_backup', JSON.stringify(records));
             
         }, (error) => {
@@ -538,7 +538,6 @@
         });
     }
 
-    // --- Yedekten yükle ---
     function loadFromBackup() {
         const backup = localStorage.getItem('babaRecords_backup');
         if (backup) {
@@ -555,7 +554,6 @@
         }
     }
 
-    // --- Kayıtları render et ---
     function renderRecords() {
         if (!records || records.length === 0) {
             recordsContainer.innerHTML = `<div class="empty-message">📭 Henüz kayıt yok. İlkini ekleyin!</div>`;
@@ -594,7 +592,6 @@
         }
         recordsContainer.innerHTML = html;
 
-        // Sil butonları
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', function(e) {
                 const id = this.getAttribute('data-id');
@@ -605,7 +602,6 @@
             });
         });
 
-        // Fotoğraf güncelleme butonları
         document.querySelectorAll('.edit-photo-btn').forEach(btn => {
             btn.addEventListener('click', function(e) {
                 const id = this.getAttribute('data-id');
@@ -617,7 +613,6 @@
         });
     }
 
-    // --- Firebase'e kaydet ---
     async function saveToFirebase(recordData, isUpdate = false) {
         try {
             let recordId = recordData.id;
@@ -635,12 +630,11 @@
             }
         } catch (error) {
             console.error('❌ Firebase kayıt hatası:', error);
-            alert('Kayıt sırasında hata oluştu! Lütfen internet bağlantınızı kontrol edin.');
+            alert('Kayıt sırasında hata oluştu!');
             return null;
         }
     }
 
-    // --- Firebase'den sil ---
     async function deleteRecord(id) {
         try {
             await remove(ref(db, `records/${id}`));
@@ -650,7 +644,6 @@
         }
     }
 
-    // --- Kayıt düzenleme ---
     function editRecord(id) {
         const record = records.find(r => r.id === id);
         if (!record) return;
@@ -680,11 +673,9 @@
         
         saveBtn.textContent = '🔄 Güncelle';
         saveBtn.style.background = '#f39c12';
-        
         document.querySelector('.container').scrollIntoView({ behavior: 'smooth' });
     }
 
-    // --- Form submit ---
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         console.log('📝 Form submit edildi');
@@ -704,7 +695,7 @@
             return;
         }
         if (!price || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
-            alert('Lütfen geçerli bir fiyat girin (pozitif sayı)!');
+            alert('Lütfen geçerli bir fiyat girin!');
             productPrice.focus();
             return;
         }
@@ -750,7 +741,6 @@
         }, 1500);
     });
 
-    // --- Form reset ---
     function resetForm() {
         customerName.value = '';
         customerPhone.value = '';
@@ -771,7 +761,7 @@
         saveBtn.style.background = '#27ae60';
     }
 
-    // --- Fotoğraf yükleme ---
+    // Fotoğraf yükleme
     photoUploadArea.addEventListener('click', function(e) {
         if (e.target.tagName !== 'IMG') {
             photoInput.click();
@@ -818,7 +808,7 @@
         reader.readAsDataURL(file);
     }
 
-    // --- Tümünü temizle ---
+    // Tümünü temizle
     clearAllBtn.addEventListener('click', function() {
         if (records.length === 0) {
             alert('Zaten hiç kayıt yok.');
@@ -838,7 +828,7 @@
         }
     });
 
-    // --- JSON Dışa Aktar ---
+    // JSON Dışa Aktar
     exportBtn.addEventListener('click', function() {
         if (records.length === 0) {
             alert('Dışa aktarılacak kayıt yok.');
@@ -854,7 +844,7 @@
         URL.revokeObjectURL(url);
     });
 
-    // --- JSON İçe Aktar ---
+    // JSON İçe Aktar
     importBtn.addEventListener('click', function() {
         importFileInput.click();
     });
@@ -895,7 +885,6 @@
         this.value = '';
     });
 
-    // --- Escape function ---
     function escapeHtml(text) {
         if (!text) return '';
         const map = {
@@ -908,33 +897,9 @@
         return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
     }
 
-    // --- Online/Offline ---
-    window.addEventListener('online', function() {
-        console.log('🌐 İnternet bağlantısı yeniden sağlandı');
-        updateSyncStatus('syncing', 'Tekrar bağlanıldı, veriler senkronize ediliyor...');
-        loadFromFirebase();
-    });
-
-    window.addEventListener('offline', function() {
-        console.log('📴 İnternet bağlantısı kesildi');
-        updateSyncStatus('offline', 'İnternet bağlantısı kesildi - Yerel veriler gösteriliyor');
-    });
-
-    // --- Başlat ---
+    // Başlat
     console.log('🚀 Uygulama başlatılıyor...');
     loadFromFirebase();
-
-    // CSS ekle
-    const style = document.createElement('style');
-    style.textContent = `
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-    `;
-    document.head.appendChild(style);
-    
     console.log('✅ Uygulama hazır!');
 </script>
 
